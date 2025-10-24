@@ -8,6 +8,25 @@ import { wrapTextMultiline } from "../common/fmt.js";
 import { request } from "../common/http.js";
 
 /**
+ * Parse the role parameter and return appropriate ownerAffiliations array.
+ * 
+ * @param {string} role - Comma-separated list of roles (OWNER, ORGANIZATION_MEMBER, COLLABORATOR)
+ * @returns {string[]} Array of valid RepositoryAffiliation values
+ */
+const parseRoleParameter = (role) => {
+  if (!role) return ["OWNER"];
+  
+  const validRoles = ["OWNER", "ORGANIZATION_MEMBER", "COLLABORATOR"];
+  const roles = role.toUpperCase().split(",").map(r => r.trim());
+  
+  // Filter to only valid roles
+  const filteredRoles = roles.filter(r => validRoles.includes(r));
+  
+  // Default to OWNER if no valid roles provided
+  return filteredRoles.length > 0 ? filteredRoles : ["OWNER"];
+};
+
+/**
  * Top languages fetcher object.
  *
  * @param {any} variables Fetcher variables.
@@ -18,10 +37,10 @@ const fetcher = (variables, token) => {
   return request(
     {
       query: `
-      query userInfo($login: String!) {
+      query userInfo($login: String!, $ownerAffiliations: [RepositoryAffiliation]) {
         user(login: $login) {
           # fetch only owner repos & not forks
-          repositories(ownerAffiliations: OWNER, isFork: false, first: 100) {
+          repositories(ownerAffiliations: $ownerAffiliations, isFork: false, first: 100) {
             nodes {
               name
               languages(first: 10, orderBy: {field: SIZE, direction: DESC}) {
@@ -57,6 +76,7 @@ const fetcher = (variables, token) => {
  * @param {string[]} exclude_repo List of repositories to exclude.
  * @param {number} size_weight Weightage to be given to size.
  * @param {number} count_weight Weightage to be given to count.
+ * @param {string} role Comma-separated list of repository affiliations (OWNER, ORGANIZATION_MEMBER, COLLABORATOR)
  * @returns {Promise<TopLangData>} Top languages data.
  */
 const fetchTopLanguages = async (
@@ -64,12 +84,16 @@ const fetchTopLanguages = async (
   exclude_repo = [],
   size_weight = 1,
   count_weight = 0,
+  role = "OWNER",
 ) => {
   if (!username) {
     throw new MissingParamError(["username"]);
   }
 
-  const res = await retryer(fetcher, { login: username });
+  const res = await retryer(fetcher, { 
+    login: username,
+    ownerAffiliations: parseRoleParameter(role),
+  });
 
   if (res.data.errors) {
     logger.error(res.data.errors);
